@@ -3,7 +3,7 @@ TerraGuard-AI-FYP
 
 *Developed for Multimedia University (MMU) Final Year Project.*
 
-👉 [**CLICK HERE TO LAUNCH THE LIVE WEB APP**](https://terraguard-ai-fyp.streamlit.app/intel_map) 👈
+👉 [**CLICK HERE TO LAUNCH THE LIVE WEB APP**](https://terraguard-ai-fyp.streamlit.app) 👈
 
 ## 🚀 Project Overview
 TerraGuard AI is an interactive, crowdsourced environmental monitoring dashboard. It allows community members to upload images of potential forest fires and uses a highly secure, Two-Gate Artificial Intelligence system to verify the threat, generate xAI heatmaps, and dispatch local authorities.
