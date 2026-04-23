@@ -1,0 +1,10 @@
+streamlit
+tensorflow-cpu
+Pillow
+numpy
+opencv-python-headless
+matplotlib
+streamlit-paste-button
+folium
+streamlit-folium
+pandas
