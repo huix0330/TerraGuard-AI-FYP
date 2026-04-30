@@ -4,11 +4,12 @@ from PIL import Image
 import numpy as np
 import cv2
 import matplotlib.cm as cm
+import time
 from streamlit_paste_button import paste_image_button
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
 # ==========================================
-# 1. ENTERPRISE CSS
+# 1. ENTERPRISE CSS & BRANDING
 # ==========================================
 hide_streamlit_style = """
             <style>
@@ -35,9 +36,6 @@ hide_streamlit_style = """
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# ==========================================
-# 2. BRANDING & DASHBOARD HEADER
-# ==========================================
 col_header1, col_header2 = st.columns([3, 1])
 with col_header1:
     st.title("👁️ TerraGuard AI: Vision Engine")
@@ -47,12 +45,17 @@ with col_header2:
 
 st.markdown("---")
 
+# ==========================================
+# 2. LOAD AI MODELS
+# ==========================================
 @st.cache_resource 
 def load_fire_model():
+    # Load your custom FYP model
     return tf.keras.models.load_model('fire_detection_model.h5')
 
 @st.cache_resource
 def load_filter_model():
+    # Load the base MobileNetV2 for Gate 1 Security Check
     return tf.keras.applications.MobileNetV2(weights='imagenet')
 
 fire_model = load_fire_model()
@@ -115,7 +118,7 @@ def apply_zoom(img, zoom):
     return img.crop((left, top, right, bottom))
 
 # ==========================================
-# 4. SLEEK DATA INGESTION UI
+# 4. DATA INGESTION UI & LIVE CCTV
 # ==========================================
 st.markdown("### 📡 Feed Data to Vision Engine")
 
@@ -130,19 +133,33 @@ tab1, tab2, tab3 = st.tabs(["📹 Live CCTV Scanner", "📸 Manual Snapshot", "�
 
 with tab1:
     st.write("Initialize real-time continuous video scanning.")
+    
     class FireScanner(VideoTransformerBase):
+        def __init__(self):
+            # Memory variables to hold the AI's last decision (The Throttle)
+            self.last_prediction_time = 0
+            self.last_confidence = 1.0 # Default to Safe
+            
         def transform(self, frame):
             img = frame.to_ndarray(format="bgr24")
-            img_resized = cv2.resize(img, (224, 224))
-            img_array = np.expand_dims(img_resized, axis=0)
-            img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
             
-            prediction = fire_model.predict(img_array)
-            confidence = prediction[0][0]
+            # The Throttle: Only run the heavy AI model ONCE per second
+            current_time = time.time()
+            if current_time - self.last_prediction_time > 1.0:
+                img_resized = cv2.resize(img, (224, 224))
+                img_array = np.expand_dims(img_resized, axis=0)
+                img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
+                
+                # Run the AI (verbose=0 stops memory leaks in the cloud console)
+                prediction = fire_model.predict(img_array, verbose=0)
+                
+                self.last_confidence = prediction[0][0]
+                self.last_prediction_time = current_time
             
-            if confidence < 0.5:
+            # Draw the UI on the video every frame using the saved memory
+            if self.last_confidence < 0.5:
                 cv2.rectangle(img, (10, 10), (img.shape[1]-10, img.shape[0]-10), (0, 0, 255), 3)
-                cv2.putText(img, f"ALERT: FIRE DETECTED ({(1-confidence):.2%})", (20, 50), 
+                cv2.putText(img, f"ALERT: FIRE DETECTED ({(1-self.last_confidence):.2%})", (20, 50), 
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
             else:
                 cv2.putText(img, "STATUS: SAFE", (20, 50), 
@@ -164,6 +181,7 @@ with tab3:
         st.write("📋 **Or Paste from Clipboard:**")
         paste_result = paste_image_button("Paste Image Now")
 
+# Determine which manual input was provided
 image = None
 if camera_photo is not None:
     image = Image.open(camera_photo)
@@ -195,6 +213,7 @@ if image is not None:
         st.info("🔒 AI processing suspended. Awaiting operator verification.")
         
     else:
+        # Gate 1: MobileNetV2 Deep Scan
         filter_preds = filter_model.predict(img_array)
         decoded_preds = tf.keras.applications.mobilenet_v2.decode_predictions(filter_preds, top=10)[0]
         
@@ -230,6 +249,7 @@ if image is not None:
         else:
             st.success("✅ Context verified by Operator and AI. Processing feed...")
             
+            # Gate 2: Fire Inference
             prediction = fire_model.predict(img_array)
             confidence = prediction[0][0]
 
