@@ -4,9 +4,7 @@ from PIL import Image
 import numpy as np
 import cv2
 import matplotlib.cm as cm
-import time
 from streamlit_paste_button import paste_image_button
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
 # ==========================================
 # 1. ENTERPRISE CSS & BRANDING
@@ -118,7 +116,7 @@ def apply_zoom(img, zoom):
     return img.crop((left, top, right, bottom))
 
 # ==========================================
-# 4. DATA INGESTION UI & LIVE CCTV
+# 4. DATA INGESTION UI 
 # ==========================================
 st.markdown("### 📡 Feed Data to Vision Engine")
 
@@ -129,50 +127,13 @@ if st.button("🔄 Reset Inputs / Clear Memory"):
     st.session_state.widget_key += 1
     st.rerun()
 
-tab1, tab2, tab3 = st.tabs(["📹 Live CCTV Scanner", "📸 Manual Snapshot", "💻 Desktop / Clipboard"])
+tab1, tab2 = st.tabs(["📸 Manual Snapshot", "💻 Desktop / Clipboard"])
 
 with tab1:
-    st.write("Initialize real-time continuous video scanning.")
-    
-    class FireScanner(VideoTransformerBase):
-        def __init__(self):
-            # Memory variables to hold the AI's last decision (The Throttle)
-            self.last_prediction_time = 0
-            self.last_confidence = 1.0 # Default to Safe
-            
-        def transform(self, frame):
-            img = frame.to_ndarray(format="bgr24")
-            
-            # The Throttle: Only run the heavy AI model ONCE per second
-            current_time = time.time()
-            if current_time - self.last_prediction_time > 1.0:
-                img_resized = cv2.resize(img, (224, 224))
-                img_array = np.expand_dims(img_resized, axis=0)
-                img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
-                
-                # Run the AI (verbose=0 stops memory leaks in the cloud console)
-                prediction = fire_model.predict(img_array, verbose=0)
-                
-                self.last_confidence = prediction[0][0]
-                self.last_prediction_time = current_time
-            
-            # Draw the UI on the video every frame using the saved memory
-            if self.last_confidence < 0.5:
-                cv2.rectangle(img, (10, 10), (img.shape[1]-10, img.shape[0]-10), (0, 0, 255), 3)
-                cv2.putText(img, f"ALERT: FIRE DETECTED ({(1-self.last_confidence):.2%})", (20, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
-            else:
-                cv2.putText(img, "STATUS: SAFE", (20, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            return img
-
-    webrtc_streamer(key="live_fire_scanner", video_transformer_factory=FireScanner)
-
-with tab2:
     st.write("Authorize your device camera to snap a manual image.")
     camera_photo = st.camera_input("Initialize Camera Feed", key=f"camera_{st.session_state.widget_key}")
 
-with tab3:
+with tab2:
     st.write("Provide an environmental image for analysis.")
     col_upload, col_paste = st.columns(2)
     with col_upload:
