@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 import matplotlib.cm as cm
 from streamlit_paste_button import paste_image_button
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
 # ==========================================
 # 1. ENTERPRISE CSS
@@ -58,7 +59,7 @@ fire_model = load_fire_model()
 filter_model = load_filter_model()
 
 # ==========================================
-# 3. THE xAI HEATMAP GENERATOR (Grad-CAM)
+# 3. xAI HEATMAP & ZOOM LOGIC
 # ==========================================
 def make_gradcam_heatmap(img_array, model):
     last_conv_layer_name = None
@@ -104,6 +105,15 @@ def display_gradcam(img_path, heatmap, alpha=0.4):
     superimposed_img = tf.keras.utils.array_to_img(superimposed_img)
     return superimposed_img
 
+def apply_zoom(img, zoom):
+    if zoom == 1.0:
+        return img
+    w, h = img.size
+    new_w, new_h = w / zoom, h / zoom
+    left, top = (w - new_w) / 2, (h - new_h) / 2
+    right, bottom = (w + new_w) / 2, (h + new_h) / 2
+    return img.crop((left, top, right, bottom))
+
 # ==========================================
 # 4. SLEEK DATA INGESTION UI
 # ==========================================
@@ -116,22 +126,42 @@ if st.button("🔄 Reset Inputs / Clear Memory"):
     st.session_state.widget_key += 1
     st.rerun()
 
-tab1, tab2 = st.tabs(["📸 Live Drone / Web Camera", "💻 Desktop / Clipboard"])
+tab1, tab2, tab3 = st.tabs(["📹 Live CCTV Scanner", "📸 Manual Snapshot", "💻 Desktop / Clipboard"])
 
 with tab1:
-    st.write("Authorize your device camera to snap an image of your current location.")
-    camera_photo = st.camera_input("Initialize Camera Feed", key=f"camera_{st.session_state.widget_key}")
+    st.write("Initialize real-time continuous video scanning.")
+    class FireScanner(VideoTransformerBase):
+        def transform(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+            img_resized = cv2.resize(img, (224, 224))
+            img_array = np.expand_dims(img_resized, axis=0)
+            img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
+            
+            prediction = fire_model.predict(img_array)
+            confidence = prediction[0][0]
+            
+            if confidence < 0.5:
+                cv2.rectangle(img, (10, 10), (img.shape[1]-10, img.shape[0]-10), (0, 0, 255), 3)
+                cv2.putText(img, f"ALERT: FIRE DETECTED ({(1-confidence):.2%})", (20, 50), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+            else:
+                cv2.putText(img, "STATUS: SAFE", (20, 50), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            return img
+
+    webrtc_streamer(key="live_fire_scanner", video_transformer_factory=FireScanner)
 
 with tab2:
+    st.write("Authorize your device camera to snap a manual image.")
+    camera_photo = st.camera_input("Initialize Camera Feed", key=f"camera_{st.session_state.widget_key}")
+
+with tab3:
     st.write("Provide an environmental image for analysis.")
     col_upload, col_paste = st.columns(2)
-    
     with col_upload:
         uploaded_file = st.file_uploader("📂 Upload Local File", type=["jpg", "jpeg", "png"], key=f"upload_{st.session_state.widget_key}")
-        
     with col_paste:
         st.write("📋 **Or Paste from Clipboard:**")
-        st.info("Tip: Copy any image, click the area below, and press Ctrl+V.")
         paste_result = paste_image_button("Paste Image Now")
 
 image = None
@@ -165,12 +195,9 @@ if image is not None:
         st.info("🔒 AI processing suspended. Awaiting operator verification.")
         
     else:
-        # --- THE DOUBLE LOCK (DEEP SCAN VERIFICATION) ---
         filter_preds = filter_model.predict(img_array)
-        # FIX: Check the Top 10 guesses instead of Top 3!
         decoded_preds = tf.keras.applications.mobilenet_v2.decode_predictions(filter_preds, top=10)[0]
         
-        # ULTIMATE BLACKLIST: Covers tech, furniture, anatomy, and all clothing
         banned_words = [
             'computer', 'laptop', 'television', 'monitor', 'desk', 'chair', 'couch', 'bed', 
             'room', 'wall', 'bottle', 'phone', 'tablet', 'air conditioner', 'curtain', 
@@ -189,7 +216,6 @@ if image is not None:
         anomaly_detected = False
         caught_word = ""
         
-        # FIX: Lowered threshold to 1% (0.01) to catch anomalies instantly
         for _, label, prob in decoded_preds:
             if any(banned in label.lower() for banned in banned_words) and prob > 0.01:
                 anomaly_detected = True
@@ -202,7 +228,6 @@ if image is not None:
             st.write("Please provide a valid outdoor forest landscape.")
         
         else:
-            # --- GATE 2: FIRE DETECTION ---
             st.success("✅ Context verified by Operator and AI. Processing feed...")
             
             prediction = fire_model.predict(img_array)
@@ -212,11 +237,17 @@ if image is not None:
             cam_image = display_gradcam("temp_image.jpg", heatmap)
 
             st.markdown("### 🧠 xAI Diagnostic Visuals")
+            
+            zoom_level = st.slider("🔍 Digital Zoom (Inspect Anomaly)", min_value=1.0, max_value=5.0, value=1.0, step=0.1)
+            
+            zoomed_raw = apply_zoom(image, zoom_level)
+            zoomed_cam = apply_zoom(cam_image, zoom_level)
+
             col_img1, col_img2 = st.columns(2)
             with col_img1:
-                st.image(image, caption='Raw Visual Feed', use_container_width=True)
+                st.image(zoomed_raw, caption='Raw Visual Feed', use_container_width=True)
             with col_img2:
-                st.image(cam_image, caption='Grad-CAM Attention Heatmap', use_container_width=True)
+                st.image(zoomed_cam, caption='Grad-CAM Attention Heatmap', use_container_width=True)
 
             st.markdown("---")
             
