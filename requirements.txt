@@ -8,3 +8,4 @@ streamlit-paste-button
 folium
 streamlit-folium
 pandas
+streamlit-webrtc
